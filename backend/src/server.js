@@ -35,15 +35,20 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/deliveries", require("./routes/delivery"));
 app.use("/api/admin", require("./routes/admin"));
 
-// Em produção, servir o frontend
-if (process.env.NODE_ENV === 'production') {
-  const buildPath = path.join(__dirname, '../../frontend/build');
+// Servir frontend (em produção ou quando buildPath existe)
+const buildPath = path.join(__dirname, '../../frontend/build');
+const fs = require('fs');
+
+if (fs.existsSync(buildPath)) {
+  console.log('✓ Servindo frontend estático de:', buildPath);
   app.use(express.static(buildPath));
   
   // Serve index.html para rotas não encontradas (React Router)
   app.get('*', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
+} else {
+  console.log('⚠ Pasta frontend/build não encontrada');
 }
 
 // Health check
