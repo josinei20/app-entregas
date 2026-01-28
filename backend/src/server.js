@@ -42,11 +42,20 @@ app.get("/api/health", (req, res) => {
 });
 
 // Servir frontend estático (React build)
-// Servir frontend estático (React build)
 // Em produção, o script build-and-start.sh cria o build
 const buildPath = path.join(__dirname, '../../frontend/build');
 
 console.log('🔍 Procurando build em:', buildPath);
+console.log('📂 __dirname:', __dirname);
+console.log('📂 Conteúdo de', path.join(__dirname, '..'));
+try {
+  const serverDir = fs.readdirSync(path.join(__dirname, '..'));
+  console.log('  -', serverDir);
+} catch(e) {}
+try {
+  const rootDir = fs.readdirSync(path.join(__dirname, '../..'));
+  console.log('📂 Root:', rootDir.slice(0, 10));
+} catch(e) {}
 
 if (fs.existsSync(buildPath)) {
   console.log('✓ Frontend build encontrado! Servindo de:', buildPath);
