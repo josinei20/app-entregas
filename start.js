@@ -1,36 +1,82 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
+
+// Script que:
+// 1. Faz build do frontend
+// 2. Inicia o backend
+
 const { execSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 
-console.log('🚀 Iniciando aplicação...');
+console.log('\n╔══════════════════════════════════════╗');
+console.log('║   STARTING APP - BUILD + SERVER      ║');
+console.log('╚══════════════════════════════════════╝\n');
 
-const buildPath = path.join(__dirname, 'frontend/build');
-
-// Verificar se build existe
-if (!fs.existsSync(buildPath)) {
-  console.log('📦 Build não encontrado! Compilando frontend...');
-  try {
-    console.log('  1. Instalando dependências do frontend...');
-    execSync('cd frontend && npm install', { stdio: 'inherit' });
+try {
+  // ============ BUILD FRONTEND ============
+  console.log('📦 STEP 1: Building Frontend...\n');
+  
+  const frontendDir = path.join(process.cwd(), 'frontend');
+  
+  if (fs.existsSync(frontendDir)) {
+    console.log('📂 Frontend dir:', frontendDir);
     
-    console.log('  2. Compilando React...');
-    execSync('cd frontend && npm run build', { stdio: 'inherit' });
-    
-    console.log('✅ Frontend compilado com sucesso!');
-  } catch (error) {
-    console.error('❌ Erro ao compilar:', error.message);
-    console.log('⚠️  Iniciando servidor sem frontend compilado...');
+    console.log('   → npm install...');
+    try {
+      execSync('npm install --prefer-offline --no-audit', { 
+        cwd: frontendDir, 
+        stdio: 'inherit',
+        shell: true
+      });
+    } catch(e) {
+      console.warn('   ⚠️  npm install teve warnings (continuando)');
+    }
+
+    console.log('\n   → npm run build...');
+    try {
+      execSync('npm run build', { 
+        cwd: frontendDir, 
+        stdio: 'inherit',
+        shell: true
+      });
+    } catch(e) {
+      console.error('   ❌ Build failed:', e.message);
+      process.exit(1);
+    }
+
+    const buildDir = path.join(frontendDir, 'build');
+    if (fs.existsSync(buildDir)) {
+      const files = fs.readdirSync(buildDir).length;
+      console.log('\n✅ Frontend build SUCCESS! (' + files + ' files)');
+    } else {
+      console.error('❌ Build dir not created!');
+      process.exit(1);
+    }
+  } else {
+    console.warn('⚠️  Frontend dir not found, skipping build');
   }
-}
 
-// Instalar dependências do backend se não existir
-const backendModules = path.join(__dirname, 'backend/node_modules');
-if (!fs.existsSync(backendModules)) {
-  console.log('📦 Instalando dependências do backend...');
-  execSync('cd backend && npm install', { stdio: 'inherit' });
-}
+  // ============ START SERVER ============
+  console.log('\n🚀 STEP 2: Starting Server...\n');
+  
+  const backendDir = path.join(process.cwd(), 'backend/src');
+  const serverFile = path.join(backendDir, 'server.js');
+  
+  if (!fs.existsSync(serverFile)) {
+    console.error('❌ Server file not found:', serverFile);
+    process.exit(1);
+  }
 
-// Iniciar servidor
-console.log('✅ Iniciando servidor...');
-require('./backend/src/server.js');
+  console.log('Starting: node ' + serverFile + '\n');
+  console.log('╔══════════════════════════════════════╗\n');
+  
+  // Start server (this won't return)
+  execSync('node ' + serverFile, { 
+    stdio: 'inherit',
+    shell: true
+  });
+  
+} catch (error) {
+  console.error('\n❌ STARTUP ERROR:', error.message);
+  process.exit(1);
+}

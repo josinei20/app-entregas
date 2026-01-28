@@ -12,12 +12,8 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm start",
-    "prestart": "npm run build:frontend",
-    "build": "npm run build:frontend && cd backend && npm install",
-    "build:frontend": "node build.js",
-    "start": "node backend/src/server.js",
-    "heroku-postbuild": "npm run build",
-    "postinstall": "node build.js"
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "start": "node start.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
