@@ -42,11 +42,9 @@ app.get("/api/health", (req, res) => {
 });
 
 // Servir frontend estático (React build)
-// Tenta primeiro em public/build (produção) depois em ../../frontend/build (desenvolvimento)
-let buildPath = path.join(__dirname, '../public/build');
-if (!fs.existsSync(buildPath)) {
-  buildPath = path.join(__dirname, '../../frontend/build');
-}
+// Servir frontend estático (React build)
+// Em produção, o script build-and-start.sh cria o build
+const buildPath = path.join(__dirname, '../../frontend/build');
 
 console.log('🔍 Procurando build em:', buildPath);
 
@@ -68,16 +66,14 @@ if (fs.existsSync(buildPath)) {
     }
   });
 } else {
-  console.log('⚠️  Build não encontrado em nenhum local');
-  console.log('📂 Diretórios procurados:');
-  console.log('  1.', path.join(__dirname, '../public/build'));
-  console.log('  2.', path.join(__dirname, '../../frontend/build'));
+  console.log('⚠️  Build não encontrado em:', buildPath);
+  console.log('🚨 O frontend precisa ser compilado!');
   
   // API ainda funciona mesmo sem frontend
   app.get('*', (req, res) => {
     res.status(404).json({ 
       success: false, 
-      message: 'API disponível em /api, frontend não encontrado' 
+      message: 'API disponível em /api | Frontend build não encontrado' 
     });
   });
 }

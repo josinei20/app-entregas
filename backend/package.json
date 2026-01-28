@@ -5,8 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "build": "node scripts/copy-frontend.js"
+    "start": "node src/server.js"
   },
   "keywords": [
     "delivery",
