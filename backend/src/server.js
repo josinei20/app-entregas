@@ -15,10 +15,10 @@ const app = express();
 // Middleware
 app.use(helmet());
 
-// ✅ CORS simples (JWT via Authorization header)
+// ✅ CORS permissivo (permite qualquer origem)
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:3003"],
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
