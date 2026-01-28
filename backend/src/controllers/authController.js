@@ -60,31 +60,45 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
+    
+    console.log('🔐 LOGIN ATTEMPT:', { username, passwordLength: password?.length });
 
     // Validate input
     if (!username || !password) {
+      console.log('❌ Missing credentials');
       return res.status(400).json({ success: false, message: 'Usuário e senha obrigatórios' });
     }
 
     // Check for driver
     const driver = mockdb.findOne('drivers', { username: username.toLowerCase() });
+    console.log('👤 Driver found:', driver ? driver.username : 'NOT FOUND');
 
     if (!driver) {
+      console.log('❌ Driver not found:', username.toLowerCase());
       return res.status(401).json({ success: false, message: 'Credenciais inválidas' });
     }
 
     // Check password
     const hashedPassword = hashPassword(password);
+    console.log('🔑 Password check:', { 
+      provided: hashedPassword.substring(0, 10) + '...',
+      stored: driver.password.substring(0, 10) + '...',
+      match: hashedPassword === driver.password
+    });
+    
     if (hashedPassword !== driver.password) {
+      console.log('❌ Password mismatch');
       return res.status(401).json({ success: false, message: 'Credenciais inválidas' });
     }
 
     // Check if driver is active
     if (!driver.isActive) {
+      console.log('❌ Driver inactive');
       return res.status(401).json({ success: false, message: 'Motorista desativado' });
     }
 
     const token = generateToken(driver._id, driver.role);
+    console.log('✅ Login success:', driver.username);
 
     res.json({
       success: true,
@@ -99,7 +113,7 @@ exports.login = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erro login:', error);
+    console.error('❌ Erro login:', error);
     res.status(500).json({ success: false, message: 'Erro no servidor', error: error.message });
   }
 };
