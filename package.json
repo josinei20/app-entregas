@@ -17,7 +17,8 @@
     "build:backend": "cd backend && npm install",
     "build:frontend": "cd frontend && npm install && npm run build",
     "start": "node backend/src/server.js",
-    "heroku-postbuild": "npm run build"
+    "heroku-postbuild": "npm run build",
+    "postinstall": "npm run build:frontend"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
