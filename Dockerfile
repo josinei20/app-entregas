@@ -22,8 +22,9 @@ COPY backend/ ./backend/
 # Copy frontend build from builder
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
-# Copy other root files (optional)
-COPY .env /app/.env
+# Do NOT copy a local .env into the image (secrets should be set via the host / Render environment)
+# Render and other hosts expose environment variables at runtime. Configure them in the
+# service dashboard (NODE_ENV, PORT, JWT_SECRET, etc.) instead of including a .env file.
 
 # Expose port and run
 ENV NODE_ENV=production

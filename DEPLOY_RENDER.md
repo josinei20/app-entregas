@@ -22,6 +22,8 @@ This guide shows the fastest, most reliable way to get a public HTTPS URL for th
    - `PORT` = `5000`
    - `JWT_SECRET` = (a long secure secret)
    - (optional) other secrets your app uses (DB connection, etc.)
+
+   **Important:** The Docker image no longer copies a local `.env` file during build. Set all runtime secrets and configuration in the Render environment variables panel (never commit a `.env` with secrets to the repo).
 5. Deploy and monitor the build logs. The app will be available at a `*.onrender.com` URL.
 
 ## Notes & tips 💡
