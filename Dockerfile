@@ -1,34 +1,21 @@
-# Multi-stage Dockerfile: build frontend and run backend serving the build
+# Usa imagem Debian slim (recomendado pelo Render)
+FROM node:18-slim
 
-# Stage 1 - build frontend
-FROM node:18-bullseye-slim AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci --silent
-COPY frontend/ .
-RUN npm run build
-
-# Stage 2 - build backend and copy frontend build
-FROM node:18-bullseye-slim AS backend
+# Diretório de trabalho
 WORKDIR /app
 
-# Install backend deps
-COPY backend/package*.json ./backend/
-RUN cd backend && npm ci --production --silent
+# Copia package.json primeiro (melhor cache)
+COPY package*.json ./
 
-# Copy backend source
-COPY backend/ ./backend/
+# Instala dependências
+RUN npm install
 
-# Copy frontend build from builder
-COPY --from=frontend-builder /app/frontend/build ./frontend/build
+# Copia o resto do projeto
+COPY . .
 
-# Do NOT copy a local .env into the image (secrets should be set via the host / Render environment)
-# Render and other hosts expose environment variables at runtime. Configure them in the
-# service dashboard (NODE_ENV, PORT, JWT_SECRET, etc.) instead of including a .env file.
+# Render usa a variável PORT
+EXPOSE 3000
 
-# Expose port and run
-ENV NODE_ENV=production
-ENV PORT=5000
-EXPOSE 5000
-WORKDIR /app/backend
-CMD ["node", "src/server.js"]
+# Comando de start
+CMD ["npm", "start"]
+
