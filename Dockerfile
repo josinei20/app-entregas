@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile: build frontend and run backend serving the build
 
 # Stage 1 - build frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:18-bullseye-slim AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci --silent
@@ -9,7 +9,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2 - build backend and copy frontend build
-FROM node:18-alpine AS backend
+FROM node:18-bullseye-slim AS backend
 WORKDIR /app
 
 # Install backend deps
