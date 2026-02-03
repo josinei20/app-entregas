@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './services/authContext';
 import PrivateRoute from './components/PrivateRoute';
 import AppLayout from './components/AppLayout';
+import { CityProvider, useCity } from './contexts/CityContext';
+import CitySelector from './components/CitySelector';
 
 // Pages
 import Login from './pages/Login';
@@ -17,6 +19,10 @@ import Reconciliation from './pages/Reconciliation';
 
 function AppContent() {
   const { isAuthenticated } = useAuth();
+  const { city } = useCity();
+
+  // If city not selected, show selector first
+  if (!city) return <CitySelector />;
 
   return (
     <Routes>
@@ -119,9 +125,11 @@ function AppContent() {
 function App() {
   return (
     <Router>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <CityProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </CityProvider>
     </Router>
   );
 }

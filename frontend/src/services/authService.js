@@ -1,27 +1,19 @@
 import api from './api';
 
 export const authService = {
-  register: (data) => api.post('/auth/register', data),
-  login: (username, password) => api.post('/auth/login', { username, password }),
+  register: (data, city) => api.post('/auth/register', data, { headers: { 'X-City': city || localStorage.getItem('city') || 'manaus' } }),
+  login: (username, password, city) => {
+    try {
+      console.debug('🔐 authService.login called', { username, city });
+    } catch (e) {}
+    return api.post('/auth/login', { username, password }, { headers: { 'X-City': city || localStorage.getItem('city') || 'manaus' } });
+  },
   getMe: () => api.get('/auth/me'),
   updateProfile: (data) => api.put('/auth/me', data),
   changePassword: (data) => api.put('/auth/change-password', data)
 };
 
-export const deliveryService = {
-  createDelivery: (data) => api.post('/deliveries', data),
-  getMyDeliveries: (params) => api.get('/deliveries', { params }),
-  getDelivery: (id) => api.get(`/deliveries/${id}`),
-  uploadDocument: (deliveryId, documentType, file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post(`/deliveries/${deliveryId}/documents/${documentType}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-  },
-  submitDelivery: (id) => api.post(`/deliveries/${id}/submit`),
-  deleteDelivery: (id) => api.delete(`/deliveries/${id}`)
-};
+
 
 export const adminService = {
   getDeliveries: (filters) => {
@@ -37,10 +29,13 @@ export const adminService = {
   getStatistics: (params) => api.get('/admin/statistics', { params }),
   getDeliveryDetails: (id) => api.get(`/admin/deliveries/${id}`),
   updateDelivery: (id, data) => api.put(`/admin/deliveries/${id}`, data),
-  downloadDocument: (deliveryId, documentType) => 
-    api.get(`/admin/deliveries/${deliveryId}/documents/${documentType}/download`, { 
-      responseType: 'blob' 
-    }),
+  downloadDocument: (deliveryId, documentType, index) => {
+    const params = index !== undefined ? { params: { index } } : {};
+    return api.get(`/admin/deliveries/${deliveryId}/documents/${documentType}/download`, { responseType: 'blob', ...params });
+  },
+  downloadAllDocuments: (deliveryId) => {
+    return api.get(`/admin/deliveries/${deliveryId}/documents/zip`, { responseType: 'blob' });
+  },
   getDriverDetails: (driverId) => api.get(`/admin/drivers/${driverId}`),
   deleteDelivery: (id) => api.delete(`/admin/deliveries/${id}`),
   getUsers: () => api.get('/admin/users'),
@@ -55,5 +50,33 @@ export const adminService = {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
-  applyReconciliation: (updates) => api.post('/admin/reconciliation/apply', { updates })
+  applyReconciliation: (updates) => api.post('/admin/reconciliation/apply', { updates }),
+  getPrograms: () => api.get('/admin/programs'),
+  createProgram: (data) => api.post('/admin/programs', data),
+  importProgramsFile: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post('/admin/programs/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  importProgramsText: (text) => api.post('/admin/programs/import', { text })
+};
+
+// Adiciona métodos do deliveryService para iniciar entrega
+export const deliveryService = {
+  createDelivery: (data) => api.post('/deliveries', data),
+  getMyDeliveries: (params) => api.get('/deliveries', { params }),
+  getDelivery: (id) => api.get(`/deliveries/${id}`),
+  uploadDocument: (deliveryId, documentType, files) => {
+    const formData = new FormData();
+    // files can be a single File, an array of Files or a FileList
+    const arr = Array.isArray(files) ? files : files instanceof FileList ? Array.from(files) : [files];
+    arr.forEach((f) => formData.append('file', f));
+    return api.post(`/deliveries/${deliveryId}/documents/${documentType}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  deleteDocument: (deliveryId, documentType, index) =>
+    api.delete(`/deliveries/${deliveryId}/documents/${documentType}/${index}`),
+  submitDelivery: (id, data = {}) => api.post(`/deliveries/${id}/submit`, data),
+  deleteDelivery: (id) => api.delete(`/deliveries/${id}`)
 };

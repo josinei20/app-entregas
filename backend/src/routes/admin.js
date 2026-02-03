@@ -1,6 +1,9 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const archiver = require('archiver');
+const multer = require('multer');
+const os = require('os');
 const mockdb = require("../mockdb");
 const auth = require("../middleware/auth");
 
@@ -20,7 +23,8 @@ function onlyAdmin(req, res, next) {
  */
 router.get("/statistics", auth, onlyAdmin, async (req, res) => {
   try {
-    const deliveries = mockdb.find("deliveries", {});
+    const db = req.mockdb;
+    const deliveries = db.find("deliveries", {});
     
     const totalDeliveries = deliveries.length;
     const submitted = deliveries.filter(d => d.status === "submitted").length;
@@ -106,7 +110,8 @@ router.get("/deliveries", auth, onlyAdmin, async (req, res) => {
     }
 
     // Busca inicialmente usando o mockdb (aplica filtros simples)
-    let deliveries = mockdb.find("deliveries", filter).sort((a, b) => b.createdAt - a.createdAt);
+    const db = req.mockdb;
+    let deliveries = db.find("deliveries", filter).sort((a, b) => b.createdAt - a.createdAt);
     console.log('  → Após mockdb.find com filter:', JSON.stringify(filter), '- Retornou', deliveries.length, 'entregas');
 
     // Filtra por intervalo de datas se fornecido (formato YYYY-MM-DD)
@@ -136,28 +141,39 @@ router.get("/deliveries", auth, onlyAdmin, async (req, res) => {
     
     console.log('✅ Retornando', deliveries.length, 'entregas');
     
-    // Consolida arquivos de ambas as pastas para cada entrega
+    // Consolida arquivos de ambas as pastas (inclui subpastas por cidade) para cada entrega
     const uploadsPath1 = path.join(__dirname, "../uploads");
     const uploadsPath2 = path.join(__dirname, "../src/uploads");
+    const cities = ['manaus', 'itajai'];
     
     const deliveriesWithFiles = deliveries.map(delivery => {
       const consolidatedFiles = {};
       
-      // Busca arquivos nas duas pastas
+      // Busca arquivos nas duas pastas e em subpastas por cidade
       [uploadsPath1, uploadsPath2].forEach(uploadsPath => {
+        // Verifica local direto
         const deliveryPath = path.join(uploadsPath, delivery.deliveryNumber);
         if (fs.existsSync(deliveryPath)) {
           try {
             const files = fs.readdirSync(deliveryPath);
-            files.forEach(file => {
-              if (!consolidatedFiles[file]) {
-                consolidatedFiles[file] = true;
-              }
-            });
+            files.forEach(file => { consolidatedFiles[file] = true; });
           } catch (err) {
             console.error(`Erro ao listar arquivos em ${deliveryPath}:`, err);
           }
         }
+
+        // Verifica subpastas de cidades
+        cities.forEach(city => {
+          const cPath = path.join(uploadsPath, city, delivery.deliveryNumber);
+          if (fs.existsSync(cPath)) {
+            try {
+              const files = fs.readdirSync(cPath);
+              files.forEach(file => { consolidatedFiles[file] = true; });
+            } catch (err) {
+              console.error(`Erro ao listar arquivos em ${cPath}:`, err);
+            }
+          }
+        });
       });
       
       return {
@@ -179,7 +195,8 @@ router.get("/deliveries", auth, onlyAdmin, async (req, res) => {
  */
 router.get("/deliveries/:id", auth, onlyAdmin, async (req, res) => {
   try {
-    const delivery = mockdb.findById("deliveries", req.params.id);
+    const db = req.mockdb;
+    const delivery = db.findById("deliveries", req.params.id);
     if (!delivery) return res.status(404).json({ message: "Entrega não encontrada" });
     return res.json({ delivery });
   } catch (err) {
@@ -195,31 +212,51 @@ router.get("/deliveries/:id", auth, onlyAdmin, async (req, res) => {
 router.get("/deliveries/:id/documents/:documentType/download", auth, onlyAdmin, async (req, res) => {
   try {
     const { id, documentType } = req.params;
-    
-    // Valida tipo de documento
-    const validDocs = ["canhotNF", "canhotCTE", "diarioBordo", "devolucaoVazio", "retiradaCheio"];
-    if (!validDocs.includes(documentType)) {
-      return res.status(400).json({ message: "Tipo de documento inválido" });
-    }
 
     // Busca entrega
-    const delivery = mockdb.findById("deliveries", id);
+    const db = req.mockdb;
+    const delivery = db.findById("deliveries", id);
     if (!delivery) {
       return res.status(404).json({ message: "Entrega não encontrada" });
     }
 
-    // Verifica se documento existe
-    const documentPath = delivery.documents[documentType];
-    if (!documentPath) {
-      return res.status(404).json({ message: "Documento não encontrado" });
+    // Verifica se o tipo de documento é conhecido para esta entrega
+    const docs = delivery.documents || {};
+    if (!Object.prototype.hasOwnProperty.call(docs, documentType) || !docs[documentType]) {
+      return res.status(404).json({ message: "Documento não encontrado para esta entrega" });
     }
 
-    // Monta caminho completo
-    const fullPath = path.join(__dirname, "../uploads", documentPath);
-    
+    // Verifica se documento existe fisicamente
+    let documentPath = delivery.documents[documentType];
+    if (Array.isArray(documentPath)) {
+      const idx = parseInt(req.query.index || '0', 10);
+      if (isNaN(idx) || idx < 0 || idx >= documentPath.length) {
+        return res.status(400).json({ message: 'Índice de documento inválido' });
+      }
+      documentPath = documentPath[idx];
+    }
+
+    // Se for array, aceita query ?index=n para escolher qual baixar
+    if (Array.isArray(documentPath)) {
+      const idx = parseInt(req.query.index || '0', 10);
+      if (isNaN(idx) || idx < 0 || idx >= documentPath.length) {
+        return res.status(400).json({ message: 'Índice de documento inválido' });
+      }
+      documentPath = documentPath[idx];
+    }
+
+    // Monta caminhos possíveis (city-specific e root)
+    const city = delivery.city || req.city || 'manaus';
+    const cityPath = path.join(__dirname, "../uploads", city, documentPath);
+    const rootPath = path.join(__dirname, "../uploads", documentPath);
+
     // Tenta fazer download do arquivo físico se existir
-    if (fs.existsSync(fullPath)) {
-      return res.download(fullPath);
+    if (fs.existsSync(cityPath)) {
+      return res.download(cityPath);
+    }
+
+    if (fs.existsSync(rootPath)) {
+      return res.download(rootPath);
     }
 
     // Se arquivo não existe, retorna JPEG válido (1x1 pixel, cinza)
@@ -235,6 +272,68 @@ router.get("/deliveries/:id/documents/:documentType/download", auth, onlyAdmin, 
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: "Erro ao fazer download" });
+  }
+});
+
+
+/**
+ * GET /api/admin/deliveries/:id/documents/zip
+ * Cria um ZIP com todos os documentos da entrega e envia em streaming
+ */
+router.get('/deliveries/:id/documents/zip', auth, onlyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = req.mockdb;
+    const delivery = db.findById('deliveries', id);
+    if (!delivery) return res.status(404).json({ message: 'Entrega não encontrada' });
+
+    const docs = delivery.documents || {};
+    const filesToAdd = [];
+    const city = delivery.city || req.city || 'manaus';
+
+    Object.entries(docs).forEach(([docType, entry]) => {
+      if (!entry) return;
+      if (Array.isArray(entry)) {
+        entry.forEach((relPath, idx) => filesToAdd.push({ relPath, docType, idx }));
+      } else {
+        filesToAdd.push({ relPath: entry, docType });
+      }
+    });
+
+    // Se não houver arquivos, retorna 404
+    if (filesToAdd.length === 0) {
+      return res.status(404).json({ message: 'Nenhum documento encontrado para esta entrega' });
+    }
+
+    // Prepara o archiver
+    res.attachment(`${delivery.deliveryNumber}_documents.zip`);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { throw err; });
+    archive.pipe(res);
+
+    // Lista de arquivos faltando
+    let missing = [];
+
+    for (const f of filesToAdd) {
+      const candidateCity = path.join(__dirname, '..', 'uploads', city, f.relPath);
+      const candidateRoot = path.join(__dirname, '..', 'uploads', f.relPath);
+      if (fs.existsSync(candidateCity)) {
+        archive.file(candidateCity, { name: path.join(delivery.deliveryNumber, path.basename(candidateCity)) });
+      } else if (fs.existsSync(candidateRoot)) {
+        archive.file(candidateRoot, { name: path.join(delivery.deliveryNumber, path.basename(candidateRoot)) });
+      } else {
+        missing.push(f.relPath);
+      }
+    }
+
+    if (missing.length) {
+      archive.append('Arquivos não encontrados:\n' + missing.join('\n'), { name: 'MISSING_FILES.txt' });
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    console.error('Erro ao gerar ZIP:', err);
+    return res.status(500).json({ message: 'Erro ao gerar ZIP', error: err.message });
   }
 });
 
@@ -256,7 +355,8 @@ router.put("/deliveries/:id", auth, onlyAdmin, async (req, res) => {
     }
 
     // Busca entrega
-    const delivery = mockdb.findById("deliveries", id);
+    const db = req.mockdb;
+    const delivery = db.findById("deliveries", req.params.id);
     console.log('🔍 Entrega encontrada:', delivery?.deliveryNumber);
     if (!delivery) {
       return res.status(404).json({ message: "Entrega não encontrada" });
@@ -274,7 +374,7 @@ router.put("/deliveries/:id", auth, onlyAdmin, async (req, res) => {
 
     console.log('🔄 Updates a fazer:', updates);
 
-    const updated = mockdb.updateOne("deliveries", { _id: id }, updates);
+    const updated = db.updateOne("deliveries", { _id: id }, updates);
     console.log('✅ Atualizado:', updated?.deliveryNumber);
     if (!updated) {
       return res.status(500).json({ message: "Erro ao atualizar entrega" });
@@ -302,7 +402,8 @@ router.delete("/deliveries/:id", auth, onlyAdmin, async (req, res) => {
     }
 
     // Deleta entrega do banco
-    const deleted = mockdb.deleteOne("deliveries", { _id: id });
+    const db = req.mockdb;
+    const deleted = db.deleteOne("deliveries", { _id: id });
     if (!deleted) {
       return res.status(500).json({ message: "Erro ao deletar entrega" });
     }
@@ -320,7 +421,8 @@ router.delete("/deliveries/:id", auth, onlyAdmin, async (req, res) => {
  */
 router.get("/users", auth, onlyAdmin, async (req, res) => {
   try {
-    const users = mockdb.find("drivers", {});
+    const db = req.mockdb;
+    const users = db.find("drivers", {});
     const usersWithoutPasswords = users.map(u => ({
       _id: u._id,
       username: u.username,
@@ -352,7 +454,8 @@ router.post("/users", auth, onlyAdmin, async (req, res) => {
     const normalizedEmail = String(email).toLowerCase();
 
     // Verifica se usuário existe (por username ou email)
-    const existing = mockdb.find('drivers', { $or: [{ username: normalizedUsername }, { email: normalizedEmail }] });
+    const db = req.mockdb;
+    const existing = db.find('drivers', { $or: [{ username: normalizedUsername }, { email: normalizedEmail }] });
     if (existing.length > 0) {
       return res.status(400).json({ message: "Usuário já existe" });
     }
@@ -375,7 +478,7 @@ router.post("/users", auth, onlyAdmin, async (req, res) => {
     };
 
     // Use API do mockdb para inserir (mantém consistência)
-    const created = mockdb.create('drivers', newUser);
+    const created = db.create('drivers', newUser);
     console.log('➕ Novo usuário criado (sem senha no log):', { _id: created._id, username: created.username, email: created.email, role: created.role });
 
     return res.json({ 
@@ -404,7 +507,8 @@ router.put("/users/:id", auth, onlyAdmin, async (req, res) => {
     const { id } = req.params;
     const { email, name, role } = req.body;
 
-    const user = mockdb.findById("drivers", id);
+    const db = req.mockdb;
+    const user = db.findById("drivers", id);
     if (!user) {
       return res.status(404).json({ message: "Usuário não encontrado" });
     }
@@ -417,7 +521,7 @@ router.put("/users/:id", auth, onlyAdmin, async (req, res) => {
     }
     if (role) updates.role = role;
 
-    mockdb.updateOne("drivers", { _id: id }, updates);
+    db.updateOne("drivers", { _id: id }, updates);
 
     return res.json({ 
       success: true, 
@@ -437,12 +541,13 @@ router.delete("/users/:id", auth, onlyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const user = mockdb.findById("drivers", id);
+    const db = req.mockdb;
+    const user = db.findById("drivers", id);
     if (!user) {
       return res.status(404).json({ message: "Usuário não encontrado" });
     }
 
-    mockdb.deleteOne("drivers", { _id: id });
+    db.deleteOne("drivers", { _id: id });
 
     return res.json({ 
       success: true, 
@@ -454,13 +559,105 @@ router.delete("/users/:id", auth, onlyAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/programs
+ * Lista programas criados
+ */
+router.get('/programs', auth, onlyAdmin, async (req, res) => {
+  try {
+    const db = req.mockdb;
+    const programs = db.find('programs', {});
+    return res.json({ programs });
+  } catch (err) {
+    console.error('Erro ao listar programas:', err);
+    return res.status(500).json({ message: 'Erro ao listar programas' });
+  }
+});
+
+/**
+ * POST /api/admin/programs
+ * Salva uma programação (simples)
+ */
+router.post('/programs', auth, onlyAdmin, async (req, res) => {
+  try {
+    const db = req.mockdb;
+    const payload = req.body || {};
+    const program = db.create('programs', Object.assign({}, payload, { createdAt: new Date().toISOString(), createdBy: req.user.id }));
+    return res.json({ success: true, program });
+  } catch (err) {
+    console.error('Erro ao criar programação:', err);
+    return res.status(500).json({ message: 'Erro ao criar programação' });
+  }
+});
+
+// -------------------------
+// Importar CSV de Programações
+// POST /api/admin/programs/import
+// Aceita multipart/form-data com campo 'file' (CSV) ou JSON { text: 'csv content' }
+// -------------------------
+const upload = multer({ dest: path.join(os.tmpdir(), 'geo_programs') });
+
+function parseCsv(text) {
+  const requiredHeaders = ['Processo','cliente','FORNECEDOR','Destinatário','Navio','Nr. vi','Nº container','NF','CNTR','Dt. Agendamento','Observação destino','CONTRATADO','PROCESSO2','PERFORMANCE','Ocorrencia'];
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length === 0) return { error: 'CSV vazio' };
+
+  const header = lines[0].split(/,|\t/).map(h => h.trim());
+  const missing = requiredHeaders.filter(h => !header.includes(h));
+  if (missing.length) return { error: 'Cabeçalho inválido. Faltando colunas: ' + missing.join(', ') };
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(/,|\t/).map(c => c.trim());
+    if (cols.length === 0 || cols.every(c => c === '')) continue;
+    const obj = {};
+    header.forEach((h, idx) => {
+      obj[h] = cols[idx] || '';
+    });
+    rows.push(obj);
+  }
+  return { header, rows };
+}
+
+router.post('/programs/import', auth, onlyAdmin, upload.single('file'), async (req, res) => {
+  try {
+    const db = req.mockdb;
+
+    let csvText = null;
+    if (req.file && req.file.path) {
+      csvText = fs.readFileSync(req.file.path, 'utf8');
+      // remove temp file
+      try { fs.unlinkSync(req.file.path); } catch(e) {}
+    } else if (req.body && req.body.text) {
+      csvText = String(req.body.text || '');
+    }
+
+    if (!csvText) return res.status(400).json({ message: 'Nenhum CSV fornecido' });
+
+    const parsed = parseCsv(csvText);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    const created = [];
+    parsed.rows.forEach(r => {
+      const program = db.create('programs', Object.assign({}, r, { createdAt: new Date().toISOString(), createdBy: req.user.id }));
+      created.push(program);
+    });
+
+    return res.json({ success: true, created });
+  } catch (err) {
+    console.error('Erro ao importar programações:', err);
+    return res.status(500).json({ message: 'Erro ao importar programações' });
+  }
+});
+
 module.exports = router;
 
 // DEBUG: export drivers to JSON file (admin only) - useful for backup
 // Use: GET /api/admin/debug/export-drivers
 router.get('/debug/export-drivers', auth, onlyAdmin, async (req, res) => {
   try {
-    const drivers = mockdb.find('drivers', {});
+    const db = req.mockdb;
+    const drivers = db.find('drivers', {});
     const exportDir = path.join(__dirname, '../data/exports');
     if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
     const filename = `drivers-export-${Date.now()}.json`;

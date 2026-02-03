@@ -11,14 +11,15 @@ const documentNames = {
   retiradaCheio: 'RETIRADA_CHEIO'
 };
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, '../../uploads');
+// Create uploads base directory
+const uploadsBase = path.join(__dirname, '../../uploads');
 
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
     try {
+      const city = req.city || 'manaus';
       const containerNumber = req.containerNumber || 'sem_numero';
-      const containerDir = path.join(uploadsDir, containerNumber);
+      const containerDir = path.join(uploadsBase, city, containerNumber);
       
       // Criar diretório se não existir
       await fs.mkdir(containerDir, { recursive: true });

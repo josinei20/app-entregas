@@ -28,13 +28,26 @@ app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-City"],
   })
 );
 app.options("*", cors());
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Debug: log incoming requests (method, path, origin, X-City) to help diagnose connectivity issues
+app.use((req, res, next) => {
+  try {
+    console.log(`⬅️ ${req.method} ${req.originalUrl} - Host: ${req.headers.host} - Origin: ${req.headers.origin} - X-City: ${req.header('x-city')}`);
+  } catch (e) {
+    // ignore logging errors
+  }
+  next();
+});
+
+// City middleware (define req.city e req.mockdb)
+app.use(require('./middleware/city'));
 
 // ✅ Serve uploads (para abrir imagens no navegador)
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
@@ -113,10 +126,7 @@ app.use((err, req, res, next) => {
 // Start server (skip MongoDB connection)
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
-
+// NOTE: Single listen handled by startServer() below to ensure binding to 0.0.0.0 and avoid duplicate listens.
 
 async function startServer() {
   try {

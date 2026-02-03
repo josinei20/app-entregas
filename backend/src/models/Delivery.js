@@ -9,6 +9,11 @@ const DeliverySchema = new mongoose.Schema(
 
     status: { type: String, enum: ["pending", "submitted"], default: "pending" },
 
+    // Observação e metadata ao submeter com documentos faltando
+    submissionObservation: { type: String, default: "" },
+    submissionForce: { type: Boolean, default: false },
+    missingDocumentsAtSubmit: { type: [String], default: [] },
+
     // usuário que criou (motorista/admin)
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     userName: { type: String, default: "" },

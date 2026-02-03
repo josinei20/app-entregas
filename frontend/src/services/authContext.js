@@ -27,49 +27,66 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  const login = async (username, password) => {
-    try {
-      const response = await authService.login(username, password);
-      const { token, driver } = response.data;
+  const login = async (username, password, city) => {
+  try {
+    const response = await authService.login(username, password, city);
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(driver));
+    // response.data é o JSON que o backend retornou
+    const data = response.data;
 
-      setToken(token);
-      setUser(driver);
+    const token = data.token;
+    const driver = data.driver;
 
-      return response.data;
-    } catch (error) {
-      // Limpar dados em caso de erro
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      setToken(null);
-      setUser(null);
-      throw error;
+    // Se o backend retornar outro formato, isso vai te avisar
+    if (!token || !driver) {
+      throw new Error(data?.message || 'Resposta de login inválida');
     }
-  };
+
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(driver));
+
+    setToken(token);
+    setUser(driver);
+
+    return data;
+  } catch (error) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    throw error;
+  }
+};
+
 
   const register = async (data) => {
-    try {
-      const response = await authService.register(data);
-      const { token, driver } = response.data;
+  try {
+    const response = await authService.register(data);
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(driver));
+    const resData = response.data;
+    const token = resData.token;
+    const driver = resData.driver;
 
-      setToken(token);
-      setUser(driver);
-
-      return response.data;
-    } catch (error) {
-      // Limpar dados em caso de erro
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      setToken(null);
-      setUser(null);
-      throw error;
+    if (!token || !driver) {
+      throw new Error(resData?.message || 'Resposta de cadastro inválida');
     }
-  };
+
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(driver));
+
+    setToken(token);
+    setUser(driver);
+
+    return resData;
+  } catch (error) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    throw error;
+  }
+};
+
 
   const logout = () => {
     localStorage.removeItem('token');

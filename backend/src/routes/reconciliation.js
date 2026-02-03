@@ -70,8 +70,9 @@ router.post('/upload', auth, onlyAdmin, upload.single('file'), async (req, res) 
 
     console.log('✓ Arquivo parseado:', uploadedData.length, 'linhas');
 
-    // Busca todas as entregas no sistema
-    const systemDeliveries = mockdb.find('deliveries', {});
+    // Busca todas as entregas no sistema (usando DB da cidade selecionada)
+    const db = req.mockdb;
+    const systemDeliveries = db.find('deliveries', {});
 
     // Comparação
     const results = {
@@ -153,10 +154,11 @@ router.post('/apply', auth, onlyAdmin, async (req, res) => {
     console.log('🔄 Aplicando', updates.length, 'atualizações de status');
 
     const results = [];
+    const db = req.mockdb;
     for (const update of updates) {
-      const delivery = mockdb.findOne('deliveries', { deliveryNumber: update.deliveryNumber });
+      const delivery = db.findOne('deliveries', { deliveryNumber: update.deliveryNumber });
       if (delivery) {
-        const updated = mockdb.updateOne('deliveries', { _id: delivery._id }, {
+        const updated = db.updateOne('deliveries', { _id: delivery._id }, {
           status: update.newStatus,
           reconciliationAppliedAt: new Date().toISOString(),
           reconciliationNote: 'Status atualizado via reconciliação de planilha'

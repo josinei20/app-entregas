@@ -1,12 +1,11 @@
-// Mock MongoDB database with file persistence
+// Mock MongoDB database with file persistence (per-city instances)
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const DB_FILE = path.join(__dirname, '../data/db.json');
-
 class MockDatabase {
-  constructor() {
+  constructor(dbFile) {
+    this.DB_FILE = dbFile || path.join(__dirname, '../data/db.json');
     this.collections = {
       drivers: [],
       deliveries: []
@@ -15,7 +14,7 @@ class MockDatabase {
   }
 
   ensureDataDir() {
-    const dataDir = path.dirname(DB_FILE);
+    const dataDir = path.dirname(this.DB_FILE);
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
@@ -23,16 +22,16 @@ class MockDatabase {
 
   loadFromFile() {
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const data = fs.readFileSync(DB_FILE, 'utf8');
+      if (fs.existsSync(this.DB_FILE)) {
+        const data = fs.readFileSync(this.DB_FILE, 'utf8');
         let parsed;
         try {
           parsed = JSON.parse(data);
         } catch (parseErr) {
           // Backup corrupted file to avoid silent overwrite
-          const corruptPath = DB_FILE + '.corrupt.' + Date.now();
+          const corruptPath = this.DB_FILE + '.corrupt.' + Date.now();
           try {
-            fs.renameSync(DB_FILE, corruptPath);
+            fs.renameSync(this.DB_FILE, corruptPath);
             console.error(`⚠️ db.json parse error. Backed up corrupt file to ${corruptPath}`);
           } catch (mvErr) {
             console.error('⚠️ Falha ao mover arquivo corrompido:', mvErr);
@@ -40,7 +39,7 @@ class MockDatabase {
           return false;
         }
         this.collections = parsed;
-        console.log('✓ Database loaded from file');
+        console.log('✓ Database loaded from file', this.DB_FILE);
         return true;
       }
     } catch (error) {
@@ -52,7 +51,7 @@ class MockDatabase {
   saveToFile() {
     try {
       this.ensureDataDir();
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.collections, null, 2));
+      fs.writeFileSync(this.DB_FILE, JSON.stringify(this.collections, null, 2));
     } catch (error) {
       console.error('Erro ao salvar banco:', error);
     }
@@ -170,7 +169,7 @@ class MockDatabase {
     ];
 
     this.saveToFile();
-    console.log('✓ Database initialized and saved');
+    console.log('✓ Database initialized and saved', this.DB_FILE);
   }
 
   find(model, query = {}) {
@@ -270,4 +269,19 @@ class MockDatabase {
   }
 }
 
-module.exports = new MockDatabase();
+// Cache per city
+const instances = {};
+
+function forCity(city = 'manaus') {
+  const name = String(city || 'manaus').toLowerCase();
+  if (!instances[name]) {
+    const dbPath = path.join(__dirname, '..', 'data', name, 'db.json');
+    instances[name] = new MockDatabase(dbPath);
+  }
+  return instances[name];
+}
+
+// Default export (backwards compatible)
+const defaultDb = forCity('manaus');
+module.exports = defaultDb;
+module.exports.forCity = forCity;

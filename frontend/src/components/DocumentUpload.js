@@ -1,13 +1,103 @@
-import React from 'react';
-import { FaCheckCircle, FaCamera, FaImage } from 'react-icons/fa';
+import React, { useState, useEffect } from 'react';
+import { FaCheckCircle, FaCamera, FaImage, FaTrash } from 'react-icons/fa';
+import { useCity } from '../contexts/CityContext';
 
-const DocumentUpload = ({ documentType, label, onFileSelect, isUploaded, isLoading }) => {
+const DocumentUpload = ({
+  documentType,
+  label,
+  onFileSelect,
+  isUploaded,
+  isLoading,
+  currentFiles = [],
+  onFileDelete
+}) => {
+  const [selectedFiles, setSelectedFiles] = useState([]);
+
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      onFileSelect(file);
+    const files = Array.from(e.target.files || []);
+    if (files.length) {
+      setSelectedFiles(files);
+      onFileSelect(files);
     }
+    // reset input so the same file can be selected again if needed
+    e.target.value = '';
   };
+
+  const { city } = useCity();
+  const citySlug = String(city || 'manaus').toLowerCase();
+
+  const renderPreview = (file, idx, isTemporary = false) => {
+    // file can be URL string (already uploaded) or a File object
+    let src;
+    if (typeof file === 'string') {
+      // If it already looks like a full uploads path, use as-is
+      if (file.startsWith('/uploads/') || file.startsWith('http')) {
+        src = file;
+      } else if (file.startsWith('uploads/') ) {
+        src = '/' + file;
+      } else {
+        // Normal relative format: "container/file.jpg"
+        src = `/uploads/${citySlug}/${file}`;
+      }
+    } else if (file && typeof file.path === 'string') {
+      // backend object (with absolute path) - extract uploads relative path when possible
+      try {
+        const normalized = file.path.replace(/\\\\/g, '/');
+        const idx = normalized.indexOf('/uploads/');
+        if (idx >= 0) {
+          src = normalized.slice(idx);
+        } else {
+          const idx2 = normalized.indexOf('uploads/');
+          if (idx2 >= 0) src = '/' + normalized.slice(idx2);
+          else src = '';
+        }
+      } catch (e) {
+        console.error('Erro ao processar path do arquivo:', e);
+        src = '';
+      }
+    } else {
+      try {
+        src = URL.createObjectURL(file);
+      } catch (e) {
+        console.error('Erro ao criar preview do arquivo:', e);
+        src = '';
+      }
+    }
+
+    const placeholder = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+
+    return (
+      <div key={(isTemporary ? 'tmp-' : '') + idx} className="relative w-24 h-24 rounded overflow-hidden border">
+        <img
+          src={src || placeholder}
+          alt={`doc-${idx}`}
+          className="w-full h-full object-cover"
+          onError={(e) => { e.target.onerror = null; e.target.src = placeholder; }}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (isTemporary) {
+              // remove from local selection
+              setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+            } else {
+              onFileDelete && onFileDelete(documentType, idx);
+            }
+          }}
+          className="absolute top-1 right-1 bg-white rounded-full p-1 text-red-600 shadow"
+        >
+          <FaTrash />
+        </button>
+      </div>
+    );
+  };
+
+  // clear temporary previews when upload finishes and server returned files
+  useEffect(() => {
+    if (!isLoading && currentFiles && currentFiles.length > 0) {
+      setSelectedFiles([]);
+    }
+  }, [isLoading, currentFiles]);
 
   return (
     <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -22,7 +112,8 @@ const DocumentUpload = ({ documentType, label, onFileSelect, isUploaded, isLoadi
             type="file"
             accept="image/*"
             onChange={handleFileChange}
-            disabled={isLoading || isUploaded}
+            disabled={isLoading}
+            multiple
             className="hidden"
           />
           <div className={`p-3 rounded-lg border-2 border-dashed text-center cursor-pointer transition ${
@@ -39,22 +130,31 @@ const DocumentUpload = ({ documentType, label, onFileSelect, isUploaded, isLoadi
               ) : (
                 <>
                   <FaImage className="text-blue-500" />
-                  <span className="text-blue-700 font-medium">{isLoading ? 'Enviando...' : 'Selecionar foto'}</span>
+                  <span className="text-blue-700 font-medium">{isLoading ? 'Enviando...' : 'Selecionar fotos'}</span>
                 </>
               )}
             </div>
           </div>
         </label>
 
-        {!isUploaded && (
-          <button
-            type="button"
-            onClick={() => document.querySelector(`input[data-type="${documentType}"]`)?.click()}
-            disabled={isLoading}
-            className="px-3 py-2 bg-gray-200 rounded-lg text-gray-700 font-medium hover:bg-gray-300 disabled:opacity-50"
-          >
-            <FaCamera />
-          </button>
+        <button
+          type="button"
+          onClick={() => document.querySelector(`input[data-type="${documentType}"]`)?.click()}
+          disabled={isLoading}
+          className="px-3 py-2 bg-gray-200 rounded-lg text-gray-700 font-medium hover:bg-gray-300 disabled:opacity-50"
+        >
+          <FaCamera />
+        </button>
+      </div>
+
+      <div className="mt-3 flex gap-2 flex-wrap">
+        {((currentFiles && currentFiles.length) || (selectedFiles && selectedFiles.length)) ? (
+          <>
+            {currentFiles && currentFiles.length ? currentFiles.map((f, i) => renderPreview(f, i, false)) : null}
+            {selectedFiles && selectedFiles.length ? selectedFiles.map((f, i) => renderPreview(f, i, true)) : null}
+          </>
+        ) : (
+          <div className="text-sm text-gray-500">Nenhuma foto anexada</div>
         )}
       </div>
 
@@ -64,7 +164,8 @@ const DocumentUpload = ({ documentType, label, onFileSelect, isUploaded, isLoadi
         capture="environment"
         data-type={documentType}
         onChange={handleFileChange}
-        disabled={isLoading || isUploaded}
+        disabled={isLoading}
+        multiple
         className="hidden"
       />
     </div>

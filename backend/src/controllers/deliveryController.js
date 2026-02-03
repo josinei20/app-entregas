@@ -1,5 +1,15 @@
 const Delivery = require('../models/Delivery');
 const Driver = require('../models/Driver');
+const fs = require('fs');
+const path = require('path');
+
+function getDocsForCity(city = 'manaus') {
+  city = String(city || 'manaus').toLowerCase();
+  if (city === 'itajai') {
+    return ['ricAbastecimento', 'diarioBordo', 'ricBaixa', 'ricColeta', 'discoTacografo'];
+  }
+  return ['canhotNF', 'canhotCTE', 'diarioBordo', 'devolucaoVazio', 'retiradaCheio'];
+} 
 
 // Create a new delivery
 exports.createDelivery = async (req, res) => {
@@ -126,9 +136,9 @@ exports.updateDeliveryDocument = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Entrega já foi enviada' });
     }
 
-    const validDocuments = ['canhotNF', 'canhotCTE', 'diarioBordo', 'devolucaoVazio', 'retiradaCheio'];
+    const validDocuments = getDocsForCity(req.city || 'manaus');
     if (!validDocuments.includes(documentType)) {
-      return res.status(400).json({ success: false, message: 'Tipo de documento inválido' });
+      return res.status(400).json({ success: false, message: 'Tipo de documento inválido para esta cidade' });
     }
 
     // Inicializar documents se não existir
@@ -136,12 +146,22 @@ exports.updateDeliveryDocument = async (req, res) => {
       delivery.documents = {};
     }
 
-    delivery.documents[documentType] = {
-      filename: req.file.filename,
-      path: req.file.path,
-      size: req.file.size,
-      uploadedAt: new Date()
-    };
+    // Move o arquivo para a pasta do container (padronizar comportamento com mock)
+    const city = req.city || 'manaus';
+    const containerFolder = delivery.deliveryNumber || 'unknown';
+    const containerDir = path.join(__dirname, '..', 'uploads', city, containerFolder);
+    fs.mkdirSync(containerDir, { recursive: true });
+
+    const originalExt = path.extname(req.file.originalname) || '.jpg';
+    const finalFilename = `${documentType}_${Date.now()}${originalExt}`;
+    const finalPath = path.join(containerDir, finalFilename);
+
+    fs.renameSync(req.file.path, finalPath);
+
+    // Salva caminho relativo (container/filename)
+    const relativePath = path.join(containerFolder, finalFilename).replace(/\\/g, '/');
+
+    delivery.documents[documentType] = relativePath;
 
     delivery.updatedAt = new Date();
     await delivery.save();
@@ -178,15 +198,32 @@ exports.submitDelivery = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Entrega já foi enviada' });
     }
 
-    // Check all documents are attached
-    const requiredDocs = ['canhotNF', 'canhotCTE', 'diarioBordo', 'devolucaoVazio', 'retiradaCheio'];
-    const missingDocs = requiredDocs.filter(doc => !delivery.documents[doc]);
+    // Check all documents are attached (city-specific)
+    const city = delivery.city || req.city || 'manaus';
+    const requiredDocs = getDocsForCity(city);
+    const missingDocs = requiredDocs.filter(doc => !delivery.documents || !delivery.documents[doc]);
+
+    console.log('📩 submitDelivery received', { id, driverId: req.user.id, requiredDocs, missingDocs, body: req.body });
+
+    // If there are missing docs, require force + observation
+    const { force, observation } = req.body || {};
 
     if (missingDocs.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Documentos obrigatórios faltando: ' + missingDocs.join(', ')
-      });
+      if (!force) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Documentos obrigatórios faltando: ' + missingDocs.join(', ')
+        });
+      }
+
+      if (!observation || !String(observation || '').trim()) {
+        return res.status(400).json({ success: false, message: 'Observação obrigatória para finalizar com documentos faltando' });
+      }
+
+      // Record that submit was forced
+      delivery.submissionObservation = String(observation).trim();
+      delivery.submissionForce = true;
+      delivery.missingDocumentsAtSubmit = missingDocs;
     }
 
     delivery.status = 'submitted';

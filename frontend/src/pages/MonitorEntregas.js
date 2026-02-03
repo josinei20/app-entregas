@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Toast from '../components/Toast';
 import { adminService } from '../services/authService';
 import { FaArrowLeft, FaEye, FaDownload, FaSync, FaFilter, FaTimes, FaTrash, FaEdit, FaEllipsisV } from 'react-icons/fa';
+import manaConfig from '../config/cities/manaus.json';
+import itajaiConfig from '../config/cities/itajai.json';
 
 const MonitorEntregas = () => {
   const navigate = useNavigate();
@@ -117,6 +119,25 @@ const MonitorEntregas = () => {
     }
   };
 
+  const handleDownloadAll = async (deliveryId) => {
+    try {
+      const response = await adminService.downloadAllDocuments(deliveryId);
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      const delivery = deliveries.find(d => d._id === deliveryId);
+      link.setAttribute('download', `${delivery?.deliveryNumber || 'documents'}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setToast({ message: 'ZIP baixado com sucesso', type: 'success' });
+    } catch (error) {
+      console.error('Erro ao baixar ZIP:', error);
+      setToast({ message: 'Erro ao baixar ZIP: ' + (error.response?.data?.message || error.message), type: 'error' });
+    }
+  };
+
   const handleDelete = async (deliveryId) => {
     if (window.confirm('Tem certeza que deseja deletar esta entrega? Esta ação não pode ser desfeita.')) {
       try {
@@ -169,13 +190,24 @@ const MonitorEntregas = () => {
     return badges[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const documentLabels = {
+  // Default labels for Manaus; we will pick per-delivery labels when showing modal
+  const defaultDocumentLabels = manaConfig.documents || {
     canhotNF: '📄 NF',
     canhotCTE: '📦 CTE',
     diarioBordo: '📓 Diário',
     devolucaoVazio: '🚛 Vazio',
     retiradaCheio: '🚚 Cheio'
   };
+
+  const getLabelsForDelivery = (delivery) => {
+    if (!delivery) return defaultDocumentLabels;
+    const city = (delivery.city || '').toLowerCase();
+    if (city === 'itajai') return itajaiConfig.documents || {};
+    return defaultDocumentLabels;
+  };
+
+  // Later, when rendering, use const labels = getLabelsForDelivery(selectedDelivery) and use labels[docKey] || docKey
+
 
   return (
     <div className="bg-gray-50 min-h-screen pb-20">
@@ -385,15 +417,18 @@ const MonitorEntregas = () => {
                       <div className="flex flex-wrap gap-1 justify-center">
                         {Object.keys(delivery.documents || {})
                           .filter(key => delivery.documents[key])
-                          .map(docKey => (
-                            <span
-                              key={docKey}
-                              title={documentLabels[docKey]}
-                              className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded"
-                            >
-                              ✓
-                            </span>
-                          ))}
+                          .map(docKey => {
+                            const labels = getLabelsForDelivery(delivery);
+                            return (
+                              <span
+                                key={docKey}
+                                title={labels[docKey] || docKey}
+                                className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded"
+                              >
+                                ✓
+                              </span>
+                            );
+                          })}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -514,35 +549,53 @@ const MonitorEntregas = () => {
 
               {/* Documentos */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-3">
-                  Documentos Anexados
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-3">
+                    Documentos Anexados
+                  </p>
+                  <button
+                    onClick={() => handleDownloadAll(selectedDelivery._id)}
+                    className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition"
+                  >
+                    <FaDownload /> Baixar pasta (ZIP)
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 gap-2">
-                  {Object.keys(selectedDelivery.documents || {}).map(docKey => (
-                    <div key={docKey}>
-                      {selectedDelivery.documents[docKey] ? (
-                        <div className="bg-gray-50 p-3 rounded flex items-center justify-between">
-                          <span className="font-semibold text-gray-800">
-                            {documentLabels[docKey]}
-                          </span>
-                          <button
-                            onClick={() =>
-                              handleDownload(selectedDelivery._id, docKey)
-                            }
-                            className="flex items-center gap-2 px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition"
-                          >
-                            <FaDownload /> Baixar
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="bg-gray-100 p-3 rounded text-gray-500 text-sm">
-                          {documentLabels[docKey]} - Não anexado
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                  {(() => {
+                    const labels = getLabelsForDelivery(selectedDelivery);
+                    return Object.keys(selectedDelivery.documents || {}).map(docKey => (
+                      <div key={docKey}>
+                        {selectedDelivery.documents[docKey] ? (
+                          <div className="bg-gray-50 p-3 rounded flex items-center justify-between">
+                            <span className="font-semibold text-gray-800">
+                              {labels[docKey] || docKey}
+                            </span>
+                            <button
+                              onClick={() =>
+                                handleDownload(selectedDelivery._id, docKey)
+                              }
+                              className="flex items-center gap-2 px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition"
+                            >
+                              <FaDownload /> Baixar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="bg-gray-100 p-3 rounded text-gray-500 text-sm">
+                            {labels[docKey] || docKey} - Não anexado
+                          </div>
+                        )}
+                      </div>
+                    ));
+                  })()} 
                 </div>
               </div>
+
+              {selectedDelivery.submissionObservation && (
+                <div className="bg-yellow-50 border-l-4 border-yellow-300 p-3 rounded mb-3">
+                  <p className="text-sm font-semibold text-yellow-800">Observação de Envio{selectedDelivery.submissionForce ? ' (Envio Forçado)' : ''}</p>
+                  <p className="text-sm text-yellow-700">{selectedDelivery.submissionObservation}</p>
+                </div>
+              )}
 
               <div className="text-xs text-gray-500 pt-4 border-t border-gray-200">
                 <p>

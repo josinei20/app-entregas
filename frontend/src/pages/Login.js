@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../services/authContext';
+import { useCity } from '../contexts/CityContext';
 import Toast from '../components/Toast';
 import { FaUser, FaLock, FaEye, FaEyeSlash } from 'react-icons/fa';
 
@@ -11,6 +12,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const { city, setCity } = useCity();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -18,10 +20,17 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Require city selection before attempting login to ensure header is sent
+    if (!city) {
+      setToast({ message: 'Escolha Manaus ou Itajaí antes de entrar', type: 'error' });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await login(formData.username, formData.password);
+      await login(formData.username, formData.password, city);
       setToast({ message: 'Login realizado com sucesso!', type: 'success' });
       setTimeout(() => navigate('/home'), 900);
     } catch (error) {
@@ -109,10 +118,32 @@ const Login = () => {
             </div>
           </div>
 
+          {/* City selector (Manaus / Itajaí) */}
+          <div className="mt-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Cidade</label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCity('manaus')}
+                className={`px-4 py-2 rounded-xl border ${city === 'manaus' ? 'bg-purple-700 text-white' : 'bg-white text-gray-700'} hover:opacity-90 transition`}
+              >
+                Manaus
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCity('itajai')}
+                className={`px-4 py-2 rounded-xl border ${city === 'itajai' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-700'} hover:opacity-90 transition`}
+              >
+                Itajaí
+              </button>
+            </div>
+          </div>
+
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-purple-700 to-emerald-600 hover:from-purple-800 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-extrabold py-3 px-4 rounded-xl transition text-lg shadow-md active:scale-[0.99]"
+            disabled={loading || !city}
+            className={`w-full ${!city ? 'opacity-60 cursor-not-allowed' : ''} bg-gradient-to-r from-purple-700 to-emerald-600 hover:from-purple-800 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-extrabold py-3 px-4 rounded-xl transition text-lg shadow-md active:scale-[0.99]`}
           >
             {loading ? 'Entrando...' : 'Entrar'}
           </button>

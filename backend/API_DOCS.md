@@ -164,12 +164,12 @@ Obter detalhes de uma entrega
 ---
 
 ### POST /deliveries/:id/documents/:documentType
-Upload de documento (com compressão automática)
+Upload de documento (aceita múltiplos arquivos)
 
 **documentType:** canhotNF, canhotCTE, diarioBordo, devolucaoVazio, retiradaCheio
 
 **Form Data:**
-- `file`: imagem do documento (JPEG, PNG, GIF, WebP)
+- `file`: imagem do documento (JPEG, PNG, GIF, WebP). Pode enviar múltiplos campos `file` para anexar várias fotos de uma vez.
 
 **Response:**
 ```json
@@ -178,6 +178,8 @@ Upload de documento (com compressão automática)
   "delivery": { ... }
 }
 ```
+
+**Nota:** Para tipos que aceitam múltiplas imagens (por exemplo `canhotNF`, `diarioBordo`, `canhotCTE`), o campo `delivery.documents.<type>` retornado será um array de caminhos. Para remover uma imagem do documento, use o endpoint DELETE correspondente.
 
 ---
 
@@ -193,6 +195,19 @@ Enviar entrega (todos os 5 documentos obrigatórios)
     "status": "submitted",
     "submittedAt": "2024-01-19T10:30:00Z"
   }
+}
+```
+
+---
+
+### DELETE /deliveries/:id/documents/:documentType/:index
+Remover um arquivo anexado ao documento (por índice). Para tipos com múltiplos arquivos, informe o índice (0-based) a ser removido.
+
+**Resposta:**
+```json
+{
+  "success": true,
+  "delivery": { ... }
 }
 ```
 

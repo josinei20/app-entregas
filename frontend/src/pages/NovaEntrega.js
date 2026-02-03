@@ -5,10 +5,12 @@ import { deliveryService } from '../services/authService';
 import DocumentUpload from '../components/DocumentUpload';
 import Toast from '../components/Toast';
 import { FaArrowLeft, FaPaperPlane, FaCheckCircle } from 'react-icons/fa';
+import { useCity } from '../contexts/CityContext';
 
 const NovaEntrega = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { config } = useCity();
   const { id: deliveryId } = useParams();
   const [delivery, setDelivery] = useState(null);
   const [formData, setFormData] = useState({
@@ -21,14 +23,16 @@ const NovaEntrega = () => {
   const [loadingSubmit, setLoadingSubmit] = useState(false);
   const [toast, setToast] = useState(null);
   const [submitted, setSubmitted] = useState(false);
+  const [submissionObservation, setSubmissionObservation] = useState('');
 
-  const documentLabels = {
-    canhotNF: '📄 Canhoto NF',
-    canhotCTE: '📦 Canhoto CTE',
-    diarioBordo: '📓 Diário de Bordo',
-    devolucaoVazio: '🚛 Devolução Vazio',
-    retiradaCheio: '🚚 Retirada Cheio'
-  };
+  const documentLabels =
+    config?.documents || {
+      canhotNF: '📄 Canhoto NF',
+      canhotCTE: '📦 Canhoto CTE',
+      diarioBordo: '📓 Diário de Bordo',
+      devolucaoVazio: '🚛 Devolução Vazio',
+      retiradaCheio: '🚚 Retirada Cheio'
+    };
 
   useEffect(() => {
     if (deliveryId) {
@@ -45,13 +49,10 @@ const NovaEntrega = () => {
 
         // Garantir que documents está inicializado
         if (!delivery.documents) {
-          delivery.documents = {
-            canhotNF: null,
-            canhotCTE: null,
-            diarioBordo: null,
-            devolucaoVazio: null,
-            retiradaCheio: null
-          };
+          delivery.documents = Object.keys(documentLabels).reduce((acc, k) => {
+            acc[k] = null;
+            return acc;
+          }, {});
         }
 
         setDelivery(delivery);
@@ -61,6 +62,7 @@ const NovaEntrega = () => {
           observations: delivery.observations || '',
           driverName: delivery.driverName || ''
         });
+        setSubmissionObservation(delivery.submissionObservation || '');
         setSubmitted(delivery.status === 'submitted');
       }
     } catch (error) {
@@ -72,7 +74,7 @@ const NovaEntrega = () => {
         type: 'error'
       });
     }
-  };
+  }; 
 
   const handleInputChange = (e) => {
     if (!deliveryId) {
@@ -94,16 +96,14 @@ const NovaEntrega = () => {
 
       // Garantir que documents existe
       if (!newDelivery.documents) {
-        newDelivery.documents = {
-          canhotNF: null,
-          canhotCTE: null,
-          diarioBordo: null,
-          devolucaoVazio: null,
-          retiradaCheio: null
-        };
+        newDelivery.documents = Object.keys(documentLabels).reduce((acc, k) => {
+          acc[k] = null;
+          return acc;
+        }, {});
       }
 
       setDelivery(newDelivery);
+      setSubmissionObservation('');
       setToast({ message: 'Entrega criada com sucesso', type: 'success' });
     } catch (error) {
       setToast({
@@ -113,7 +113,7 @@ const NovaEntrega = () => {
     }
   };
 
-  const handleDocumentUpload = async (documentType, file) => {
+  const handleDocumentUpload = async (documentType, files) => {
     if (!delivery) {
       setToast({ message: 'Crie a entrega primeiro', type: 'error' });
       return;
@@ -125,20 +125,19 @@ const NovaEntrega = () => {
       const response = await deliveryService.uploadDocument(
         delivery._id,
         documentType,
-        file
+        files
       );
+
+      console.log('📤 Upload response:', response.data);
 
       if (response.data && response.data.delivery) {
         const updatedDelivery = response.data.delivery;
 
         if (!updatedDelivery.documents) {
-          updatedDelivery.documents = {
-            canhotNF: null,
-            canhotCTE: null,
-            diarioBordo: null,
-            devolucaoVazio: null,
-            retiradaCheio: null
-          };
+          updatedDelivery.documents = Object.keys(documentLabels).reduce((acc, k) => {
+            acc[k] = null;
+            return acc;
+          }, {});
         }
 
         setDelivery(updatedDelivery);
@@ -146,7 +145,7 @@ const NovaEntrega = () => {
 
       setToast({ message: '✅ Documento anexado com sucesso', type: 'success' });
     } catch (error) {
-      console.error('Erro ao fazer upload:', error);
+      console.error('Erro ao fazer upload:', error, error?.response?.data);
       setToast({
         message:
           'Erro ao enviar documento: ' +
@@ -158,19 +157,58 @@ const NovaEntrega = () => {
     }
   };
 
+  const handleDeleteDocument = async (documentType, index) => {
+    if (!delivery) return;
+    try {
+      const response = await deliveryService.deleteDocument(delivery._id, documentType, index);
+      if (response.data && response.data.delivery) {
+        setDelivery(response.data.delivery);
+        setToast({ message: '✅ Documento removido', type: 'success' });
+      }
+    } catch (err) {
+      console.error('Erro ao deletar documento:', err);
+      setToast({ message: 'Erro ao deletar documento', type: 'error' });
+    }
+  };
+
   const handleSubmit = async () => {
     setLoadingSubmit(true);
 
+    const submitAttempt = async (tried = false) => {
+      try {
+        // Force if documents missing OR if driver explicitly provided an observation
+        const force = !allDocsUploaded || !!submissionObservation.trim();
+        if (!allDocsUploaded && !submissionObservation.trim()) {
+          setToast({ message: 'Observação obrigatória para finalizar quando houver documentos faltando', type: 'error' });
+          setLoadingSubmit(false);
+          return;
+        }
+
+        console.log('📤 Submitting delivery', { id: delivery._id, force, observation: submissionObservation.trim(), tried });
+
+        const response = await deliveryService.submitDelivery(delivery._id, { force, observation: submissionObservation.trim() });
+
+        console.log('📤 Submit response:', response.data);
+
+        setSubmitted(true);
+        setToast({ message: '✅ Enviado com sucesso!', type: 'success' });
+        setTimeout(() => navigate('/minhas-entregas'), 2000);
+      } catch (error) {
+        console.error('Erro ao enviar entrega:', error, error?.response?.data);
+        const msg = error.response?.data?.message || error.message || 'Erro ao enviar';
+        setToast({ message: msg, type: 'error' });
+
+        // Auto-retry once by forcing if server complained about missing docs and we have an observation
+        if (!tried && /Documentos obrigatórios faltando/i.test(msg) && submissionObservation.trim()) {
+          console.log('📤 Server rejected due to missing docs — retrying with force=true');
+          await submitAttempt(true);
+          return;
+        }
+      }
+    };
+
     try {
-      await deliveryService.submitDelivery(delivery._id);
-      setSubmitted(true);
-      setToast({ message: '✅ Enviado com sucesso!', type: 'success' });
-      setTimeout(() => navigate('/minhas-entregas'), 2000);
-    } catch (error) {
-      setToast({
-        message: error.response?.data?.message || 'Erro ao enviar',
-        type: 'error'
-      });
+      await submitAttempt(false);
     } finally {
       setLoadingSubmit(false);
     }
@@ -336,27 +374,51 @@ const NovaEntrega = () => {
                   </p>
 
                   <div className="space-y-3">
-                    {Object.entries(documentLabels).map(([key, label]) => (
-                      <DocumentUpload
-                        key={key}
-                        documentType={key}
-                        label={label}
-                        onFileSelect={(file) => handleDocumentUpload(key, file)}
-                        isUploaded={!!(delivery?.documents && delivery.documents[key])}
-                        isLoading={uploadingDoc === key}
-                      />
-                    ))}
+                    {Object.entries(documentLabels).map(([key, label]) => {
+                      // Normaliza documentos: string -> [string], array -> array, null -> []
+                      let currentFiles = [];
+                      if (delivery?.documents && delivery.documents[key]) {
+                        currentFiles = Array.isArray(delivery.documents[key])
+                          ? delivery.documents[key]
+                          : [delivery.documents[key]];
+                      }
+
+                      return (
+                        <DocumentUpload
+                          key={key}
+                          documentType={key}
+                          label={label}
+                          onFileSelect={(files) => handleDocumentUpload(key, files)}
+                          onFileDelete={handleDeleteDocument}
+                          currentFiles={currentFiles}
+                          isUploaded={currentFiles.length > 0}
+                          isLoading={uploadingDoc === key}
+                        />
+                      );
+                    })}
                   </div>
+                </div>
+
+                {/* Observação para envio quando faltar documentos */}
+                <div className="mt-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Observação (Obrigatório se faltar documentos)</label>
+                  <textarea
+                    value={submissionObservation}
+                    onChange={(e) => setSubmissionObservation(e.target.value)}
+                    placeholder="Explique porque está finalizando sem todos os documentos..."
+                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none text-base"
+                    rows={3}
+                  />
                 </div>
 
                 {/* Submit button */}
                 <button
                   onClick={handleSubmit}
-                  disabled={loadingSubmit || !allDocsUploaded}
+                  disabled={loadingSubmit || (!allDocsUploaded && !submissionObservation.trim())}
                   className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-bold py-4 px-6 rounded-lg transition text-lg flex items-center justify-center gap-2 shadow-md"
                 >
                   <FaPaperPlane />
-                  {loadingSubmit ? 'Enviando...' : 'Finalizar e Enviar'}
+                  {loadingSubmit ? 'Enviando...' : (!allDocsUploaded ? 'Finalizar com Observação' : 'Finalizar e Enviar')}
                 </button>
               </div>
             )}

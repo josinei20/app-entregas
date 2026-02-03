@@ -31,8 +31,17 @@ const AdminDashboard = () => {
     endDate: ''
   });
 
+
+
+  const [programModalOpen, setProgramModalOpen] = useState(false);
+  const [programForm, setProgramForm] = useState({
+    processo: '', cliente: '', fornecedor: '', destinatario: '', navio: '', nrVi: '', numeroContainer: '', nf: '', cntr: '', dataAgendamento: '', observacaoDestino: '', contratado: '', processo2: '', performance: '', ocorrencia: ''
+  });
+  const [programs, setPrograms] = useState([]);
+
   useEffect(() => {
     loadData();
+    loadPrograms();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, filters]);
 
@@ -52,13 +61,22 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleDownload = async (deliveryId, documentType) => {
+  const loadPrograms = async () => {
     try {
-      const response = await adminService.downloadDocument(deliveryId, documentType);
+      const res = await adminService.getPrograms();
+      setPrograms(res.data.programs || []);
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleDownload = async (deliveryId, documentType, index) => {
+    try {
+      const response = await adminService.downloadDocument(deliveryId, documentType, index);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${documentType}.jpg`);
+      link.setAttribute('download', `${documentType}${index !== undefined ? `_${index}` : ''}.jpg`);
       document.body.appendChild(link);
       link.click();
       link.parentElement.removeChild(link);
@@ -245,6 +263,33 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* Montar Programação */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-gray-800">Programações</h3>
+            <button
+              onClick={() => setProgramModalOpen(true)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold"
+            >
+              🗂️ Montar Programação
+            </button>
+          </div>
+
+          {programs && programs.length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-sm text-gray-600 mb-2">Últimas programações</h4>
+              <div className="grid grid-cols-1 gap-2">
+                {programs.slice(0,5).map((p) => (
+                  <div key={p._id} className="p-3 bg-gray-50 rounded-lg text-sm">
+                    <strong>{p.processo || '-'}:</strong> {p.cliente || '-'} — <span className="text-gray-500">{p.numeroContainer || p.nf || ''}</span>
+                    <div className="text-xs text-gray-400">{p.dataAgendamento ? new Date(p.dataAgendamento).toLocaleString('pt-BR') : ''}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Deliveries Table */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b border-gray-200">
@@ -358,6 +403,13 @@ const AdminDashboard = () => {
                         <p className="font-medium">{selectedDelivery.vehiclePlate}</p>
                       </div>
                     )}
+
+                    {selectedDelivery.status === 'scheduled' && selectedDelivery.scheduledAt && (
+                      <div>
+                        <p className="text-gray-600">Agendada para</p>
+                        <p className="font-medium">{new Date(selectedDelivery.scheduledAt).toLocaleString('pt-BR')}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -372,12 +424,26 @@ const AdminDashboard = () => {
                       >
                         <span className="font-medium text-gray-800">{label}</span>
                         {selectedDelivery.documents?.[key] ? (
-                          <button
-                            onClick={() => handleDownload(selectedDelivery._id, key)}
-                            className="flex items-center gap-1 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition text-sm"
-                          >
-                            <FaDownload /> Download
-                          </button>
+                          Array.isArray(selectedDelivery.documents[key]) ? (
+                            <div className="flex items-center gap-2">
+                              {selectedDelivery.documents[key].map((d, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => handleDownload(selectedDelivery._id, key, i)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition text-sm"
+                                >
+                                  <FaDownload /> #{i + 1}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleDownload(selectedDelivery._id, key)}
+                              className="flex items-center gap-1 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition text-sm"
+                            >
+                              <FaDownload /> Download
+                            </button>
+                          )
                         ) : (
                           <span className="text-gray-400 text-sm">Não anexado</span>
                         )}
@@ -397,12 +463,123 @@ const AdminDashboard = () => {
             </div>
           </div>
         )}
-      </div>
+
+
+      {programModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-gray-800">Montar Programação</h3>
+              <button onClick={() => setProgramModalOpen(false)} className="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Processo</label>
+                  <input type="text" value={programForm.processo} onChange={(e) => setProgramForm({ ...programForm, processo: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">cliente</label>
+                  <input type="text" value={programForm.cliente} onChange={(e) => setProgramForm({ ...programForm, cliente: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">FORNECEDOR</label>
+                  <input type="text" value={programForm.fornecedor} onChange={(e) => setProgramForm({ ...programForm, fornecedor: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Destinatário</label>
+                  <input type="text" value={programForm.destinatario} onChange={(e) => setProgramForm({ ...programForm, destinatario: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Navio</label>
+                  <input type="text" value={programForm.navio} onChange={(e) => setProgramForm({ ...programForm, navio: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Nr. vi</label>
+                  <input type="text" value={programForm.nrVi} onChange={(e) => setProgramForm({ ...programForm, nrVi: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Nº container</label>
+                  <input type="text" value={programForm.numeroContainer} onChange={(e) => setProgramForm({ ...programForm, numeroContainer: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">NF</label>
+                  <input type="text" value={programForm.nf} onChange={(e) => setProgramForm({ ...programForm, nf: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">CNTR</label>
+                  <input type="text" value={programForm.cntr} onChange={(e) => setProgramForm({ ...programForm, cntr: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Dt. Agendamento</label>
+                  <input type="datetime-local" value={programForm.dataAgendamento} onChange={(e) => setProgramForm({ ...programForm, dataAgendamento: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Observação destino</label>
+                  <input type="text" value={programForm.observacaoDestino} onChange={(e) => setProgramForm({ ...programForm, observacaoDestino: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">CONTRATADO</label>
+                  <input type="text" value={programForm.contratado} onChange={(e) => setProgramForm({ ...programForm, contratado: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">PROCESSO2</label>
+                  <input type="text" value={programForm.processo2} onChange={(e) => setProgramForm({ ...programForm, processo2: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">PERFORMANCE</label>
+                  <input type="text" value={programForm.performance} onChange={(e) => setProgramForm({ ...programForm, performance: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Ocorrencia</label>
+                  <input type="text" value={programForm.ocorrencia} onChange={(e) => setProgramForm({ ...programForm, ocorrencia: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none" />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => setProgramModalOpen(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">Cancelar</button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await adminService.createProgram(programForm);
+                      setToast({ message: res.data?.message || 'Programação salva', type: 'success' });
+                      setProgramModalOpen(false);
+                      setProgramForm({ processo: '', cliente: '', fornecedor: '', destinatario: '', navio: '', nrVi: '', numeroContainer: '', nf: '', cntr: '', dataAgendamento: '', observacaoDestino: '', contratado: '', processo2: '', performance: '', ocorrencia: '' });
+                      loadPrograms();
+                    } catch (err) {
+                      setToast({ message: err.response?.data?.message || 'Erro ao salvar programação', type: 'error' });
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold"
+                >
+                  Salvar Programação
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
     </div>
+  </div>
   );
 };
 

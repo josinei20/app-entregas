@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
-const mockdb = require("../mockdb");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -11,9 +10,8 @@ const fs = require("fs");
 // =======================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Será dinâmico: baseado no deliveryNumber
-    // Por enquanto cria pasta com ID do usuário, será ajustado no handler
-    const dir = path.join(__dirname, "../uploads");
+    // Dinâmico por cidade
+    const dir = path.join(__dirname, "../uploads", req.city || 'manaus');
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -23,7 +21,7 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ auth, storage });
+const upload = multer({ storage });
 
 // =======================
 // Criar entrega
@@ -31,17 +29,19 @@ const upload = multer({ auth, storage });
 // =======================
 router.post("/", auth, async (req, res) => {
   try {
+    const db = req.mockdb;
+    const city = req.city || 'manaus';
     const { deliveryNumber, vehiclePlate, observations, driverName } = req.body;
 
-    console.log('📦 Recebido no backend:', { deliveryNumber, vehiclePlate, observations, driverName });
+    console.log('📦 Recebido no backend:', { deliveryNumber, vehiclePlate, observations, driverName, city });
 
     if (!deliveryNumber) {
       return res.status(400).json({ message: "Número da entrega obrigatório" });
     }
 
-    const driver = mockdb.findById("drivers", req.user.id);
+    const driver = db.findById("drivers", req.user.id);
 
-    const delivery = mockdb.create("deliveries", {
+    const delivery = db.create("deliveries", {
       deliveryNumber,
       vehiclePlate,
       observations,
@@ -49,7 +49,8 @@ router.post("/", auth, async (req, res) => {
       userId: req.user.id,
       userName: driver?.fullName || "Unknown",
       status: "pending",
-      documents: {}
+      documents: {},
+      city
     });
 
     res.status(201).json({ delivery });
@@ -64,6 +65,7 @@ router.post("/", auth, async (req, res) => {
 // GET /api/deliveries
 // =======================
 router.get("/", auth, async (req, res) => {
+  const db = req.mockdb;
   const { status } = req.query;
   const query = { userId: req.user.id };
   
@@ -71,7 +73,7 @@ router.get("/", auth, async (req, res) => {
     query.status = status;
   }
   
-  const deliveries = mockdb.find("deliveries", query).sort((a, b) => b.createdAt - a.createdAt);
+  const deliveries = db.find("deliveries", query).sort((a, b) => b.createdAt - a.createdAt);
   res.json({ deliveries });
 });
 
@@ -80,59 +82,124 @@ router.get("/", auth, async (req, res) => {
 // GET /api/deliveries/:id
 // =======================
 router.get("/:id", auth, async (req, res) => {
-  const delivery = mockdb.findById("deliveries", req.params.id);
+  const db = req.mockdb;
+  const delivery = db.findById("deliveries", req.params.id);
   if (!delivery) return res.status(404).json({ message: "Entrega não encontrada" });
   res.json({ delivery });
 });
 
 // =======================
-// Upload documento
+// Upload documento (aceita múltiplos arquivos)
 // POST /api/deliveries/:id/documents/:type
 // =======================
-router.post("/:id/documents/:type", auth, upload.single("file"), async (req, res) => {
+router.post("/:id/documents/:type", auth, upload.array("file"), async (req, res) => {
   try {
     const { id, type } = req.params;
 
-    const delivery = mockdb.findById("deliveries", id);
+    const db = req.mockdb;
+    const delivery = db.findById("deliveries", id);
     if (!delivery) return res.status(404).json({ message: "Entrega não encontrada" });
 
     // Mapeia nomes amigáveis para abreviaturas
     const typeNames = {
+      // Manaus
       canhotNF: "NF",
       canhotCTE: "CTE",
       diarioBordo: "DIARIO",
       devolucaoVazio: "DEVOLUCAO",
-      retiradaCheio: "RETIRADA"
+      retiradaCheio: "RETIRADA",
+      // Itajaí
+      ricAbastecimento: "RIC_AB",
+      ricBaixa: "RIC_BAIXA",
+      ricColeta: "RIC_COLETA",
+      discoTacografo: "DISCO"
     };
 
-    const filename = typeNames[type] || type;
+    const baseName = typeNames[type] || type;
     const containerFolder = delivery.deliveryNumber; // Numero do container é o número da entrega
-    const containerDir = path.join(__dirname, "../uploads", containerFolder);
+    const city = req.city || 'manaus';
+    const containerDir = path.join(__dirname, "../uploads", city, containerFolder);
 
     // Cria pasta se não existir
     fs.mkdirSync(containerDir, { recursive: true });
 
-    // Gera nome do arquivo com extensão original
-    const originalExt = path.extname(req.file.originalname) || ".jpg";
-    const finalFilename = `${filename}${originalExt}`;
-    const finalPath = path.join(containerDir, finalFilename);
-
-    // Move arquivo do temp para local definitivo
-    const tempPath = req.file.path;
-    fs.renameSync(tempPath, finalPath);
-
-    // Armazena caminho relativo (para servir depois)
-    const relativePath = path.join(containerFolder, finalFilename).replace(/\\/g, "/");
-
-    // Atualiza documento na entrega
+    // Normaliza docs existentes para array
     const docs = delivery.documents || {};
-    docs[type] = relativePath;
-    mockdb.updateOne("deliveries", { _id: id }, { documents: docs });
+    if (docs[type] && !Array.isArray(docs[type])) {
+      docs[type] = [docs[type]];
+    }
 
-    res.json({ delivery: mockdb.findById("deliveries", id) });
+    // Processa arquivos enviados
+    const savedPaths = [];
+    if (req.files && req.files.length) {
+      req.files.forEach((file, idx) => {
+        const originalExt = path.extname(file.originalname) || ".jpg";
+        const finalFilename = `${baseName}_${Date.now()}_${idx}${originalExt}`;
+        const finalPath = path.join(containerDir, finalFilename);
+        const tempPath = file.path;
+        fs.renameSync(tempPath, finalPath);
+        const relativePath = path.join(containerFolder, finalFilename).replace(/\\/g, "/");
+        savedPaths.push(relativePath);
+      });
+
+      docs[type] = (docs[type] || []).concat(savedPaths);
+      const db = req.mockdb;
+      db.updateOne("deliveries", { _id: id }, { documents: docs });
+    }
+
+    const db2 = req.mockdb;
+    res.json({ delivery: db2.findById("deliveries", id) });
   } catch (err) {
     console.error("Erro ao upload:", err);
     res.status(500).json({ message: "Erro ao fazer upload", error: err.message });
+  }
+});
+
+// =======================
+// Deletar um documento específico por índice
+// DELETE /api/deliveries/:id/documents/:type/:index
+// =======================
+router.delete('/:id/documents/:type/:index', auth, async (req, res) => {
+  try {
+    const { id, type, index } = req.params;
+    const db = req.mockdb;
+    const delivery = db.findById('deliveries', id);
+    if (!delivery) return res.status(404).json({ message: 'Entrega não encontrada' });
+
+    const docs = delivery.documents || {};
+    const docEntry = docs[type];
+
+    if (!docEntry) return res.status(404).json({ message: 'Documento não encontrado' });
+
+    const idx = parseInt(index, 10);
+
+    const city = req.city || 'manaus';
+
+    // Se for string simples, só remove
+    if (!Array.isArray(docEntry)) {
+      // remove file from disk
+      const filePath = path.join(__dirname, '../uploads', city, docEntry);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      docs[type] = null;
+      db.updateOne('deliveries', { _id: id }, { documents: docs });
+      return res.json({ delivery: db.findById('deliveries', id) });
+    }
+
+    // Array: remove índice
+    if (idx < 0 || idx >= docEntry.length) return res.status(400).json({ message: 'Índice inválido' });
+
+    const removed = docEntry.splice(idx, 1)[0];
+    const filePath = path.join(__dirname, '../uploads', city, removed);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    // Normaliza: se ficar vazio, define null
+    docs[type] = docEntry.length ? docEntry : null;
+    db.updateOne('deliveries', { _id: id }, { documents: docs });
+
+    res.json({ delivery: db.findById('deliveries', id) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao deletar documento' });
   }
 });
 
@@ -141,12 +208,51 @@ router.post("/:id/documents/:type", auth, upload.single("file"), async (req, res
 // POST /api/deliveries/:id/submit
 // =======================
 router.post("/:id/submit", auth, async (req, res) => {
-  const delivery = mockdb.findById("deliveries", req.params.id);
+  const db = req.mockdb;
+  console.log('📩 Submit request to mock route', { id: req.params.id, body: req.body, headers: { 'x-city': req.header('x-city'), host: req.headers.host } });
+
+  const delivery = db.findById("deliveries", req.params.id);
   if (!delivery) return res.status(404).json({ message: "Entrega não encontrada" });
 
-  mockdb.updateOne("deliveries", { _id: req.params.id }, { status: "submitted", submittedAt: new Date() });
+  // Validar documentos obrigatórios por cidade
+  const city = delivery.city || req.city || 'manaus';
+  const requiredDocs = city === 'itajai'
+    ? ['ricAbastecimento', 'diarioBordo', 'ricBaixa', 'ricColeta', 'discoTacografo']
+    : ['canhotNF', 'canhotCTE', 'diarioBordo', 'devolucaoVazio', 'retiradaCheio'];
 
-  res.json({ message: "Entrega enviada com sucesso" });
+  const missingDocs = requiredDocs.filter(doc => !delivery.documents || !delivery.documents[doc]);
+
+  const { force, observation } = req.body || {};
+  console.log('  -> missingDocs:', missingDocs, 'force:', force, 'observation:', observation);
+
+  if (missingDocs.length > 0) {
+    if (!force) {
+      return res.status(400).json({ message: 'Documentos obrigatórios faltando: ' + missingDocs.join(', ') });
+    }
+    if (!observation || !String(observation || '').trim()) {
+      return res.status(400).json({ message: 'Observação obrigatória para finalizar com documentos faltando' });
+    }
+
+    // Store metadata about forced submit
+    const updates = { status: 'submitted', submittedAt: new Date(), submissionObservation: String(observation).trim(), submissionForce: true, missingDocumentsAtSubmit: missingDocs };
+    db.updateOne("deliveries", { _id: req.params.id }, updates);
+
+    console.log('  -> Submission forced saved for', req.params.id);
+  } else {
+    // No missing docs, mark as submitted
+    db.updateOne('deliveries', { _id: req.params.id }, { status: 'submitted', submittedAt: new Date() });
+  }
+
+  return res.json({ success: true, message: 'Entrega enviada com sucesso', delivery: db.findById('deliveries', req.params.id) });
+});
+
+
+    return res.json({ message: "Entrega enviada com sucesso (forçada)", delivery: db.findById('deliveries', req.params.id) });
+  }
+
+  db.updateOne("deliveries", { _id: req.params.id }, { status: "submitted", submittedAt: new Date() });
+
+  res.json({ message: "Entrega enviada com sucesso", delivery: db.findById('deliveries', req.params.id) });
 });
 
 // =======================
@@ -154,14 +260,15 @@ router.post("/:id/submit", auth, async (req, res) => {
 // DELETE /api/deliveries/:id
 // =======================
 router.delete("/:id", auth, async (req, res) => {
-  const delivery = mockdb.findById("deliveries", req.params.id);
+  const db = req.mockdb;
+  const delivery = db.findById("deliveries", req.params.id);
   if (!delivery) return res.status(404).json({ message: "Entrega não encontrada" });
 
   if (delivery.status !== "pending") {
     return res.status(400).json({ message: "Entrega enviada não pode ser deletada" });
   }
 
-  mockdb.deleteOne("deliveries", { _id: req.params.id });
+  db.deleteOne("deliveries", { _id: req.params.id });
   res.json({ message: "Entrega deletada" });
 });
 

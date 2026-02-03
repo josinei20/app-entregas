@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../services/authContext';
+import { useCity } from '../contexts/CityContext';
 import { FaSignOutAlt, FaUser, FaBars, FaHome, FaTimes } from 'react-icons/fa';
 
 const Header = () => {
@@ -62,6 +63,9 @@ const Header = () => {
             <FaUser className="text-white/80" />
             <span className="font-medium">{user?.name}</span>
           </div>
+
+          {/* City chip */}
+          <CityChip />
 
           {/* Botão menu (clean, sem ficar grandão) */}
           <button
@@ -139,5 +143,19 @@ const Header = () => {
     </header>
   );
 };
+
+function CityChip() {
+  const { city, setCity, config } = useCity();
+  if (!city) return null;
+  return (
+    <button
+      onClick={() => setCity(null)}
+      className="hidden sm:flex items-center gap-2 text-sm bg-white/10 border border-white/15 px-3 py-2 rounded-full hover:bg-white/15"
+      title="Clique para trocar cidade"
+    >
+      <span className="font-medium">{config?.name || city}</span>
+    </button>
+  );
+}
 
 export default Header;
